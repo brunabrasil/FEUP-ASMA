@@ -27,13 +27,15 @@ class Environment(Agent):
             await drone.start()
             drones.append(drone)
         
-        print(drones)
+        #print(drones)
 
-        center1 = Center("center1@localhost", "password", df_center1, len(df_drones))
-        await center1.start()
+        print(drones[0].presence.state)
 
-        center2 = Center("center2@localhost", "password", df_center2, len(df_drones))
-        await center2.start()
+        # center1 = Center("center1@localhost", "password", df_center1, len(df_drones))
+        # await center1.start()
+
+        # center2 = Center("center2@localhost", "password", df_center2, len(df_drones))
+        # await center2.start()
     
     async def setup(self):
         print(f"Environment {self.jid} is ready")
