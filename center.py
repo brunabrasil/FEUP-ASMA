@@ -13,15 +13,12 @@ class Order:
 
 
 class Center(Agent):
-    def __init__(self, jid, password, df, numDrones):
+    def __init__(self, jid, password, df, drones):
         super().__init__(jid, password)
         self.orders = []
         self.load_csv(df)
-        self.drones = []
-        self.numDrones = numDrones
+        self.drones = drones
         
-            
-
     def add_order(self, order_id, latitude, longitude, weight):
         order = Order(order_id, latitude, longitude, weight)
         self.orders.append(order)
@@ -37,10 +34,21 @@ class Center(Agent):
             self.add_order(row['id'], row['latitude'], row['longitude'], row['weight'])
 
     async def setup(self):
-        self.b = self.DroneInfo()
-        self.b.setDroneNumber(self.numDrones)
-        self.add_behaviour(self.b)
+        # self.b = self.DroneInfo()
+        # self.b.setDroneNumber(self.numDrones)
+        # self.add_behaviour(self.b)
+        self.add_behaviour(self.Behav1())
         print(f"Center {self.jid} is ready")
+        self.load_drones()
+
+    def load_drones(self):
+        for drone in self.drones:
+            for order in self.orders:
+                if order.weight <= drone.capacity:
+                    if drone.presence.is_available():
+
+                        self.orders.remove(order)
+                    break
 
     class DroneInfo(OneShotBehaviour):
         async def run(self):
@@ -57,6 +65,31 @@ class Center(Agent):
 
         def setDroneNumber(self, numDrones):
             self.numDrones = numDrones
+    
+
+    class Behav1(OneShotBehaviour):
+        def on_available(self, jid, stanza):
+            print("[{}] Agent {} is available.".format(self.agent.name, jid.split("@")[0]))
+
+        def on_subscribed(self, jid):
+            print("[{}] Agent {} has accepted the subscription.".format(self.agent.name, jid.split("@")[0]))
+            print("[{}] Contacts List: {}".format(self.agent.name, self.agent.presence.get_contacts()))
+
+        def on_subscribe(self, jid):
+            print("[{}] Agent {} asked for subscription. Let's aprove it.".format(self.agent.name, jid.split("@")[0]))
+            self.presence.approve(jid)
+
+        async def run(self):
+            self.presence.on_subscribe = self.on_subscribe
+            self.presence.on_subscribed = self.on_subscribed
+            self.presence.on_available = self.on_available
+
+            self.presence.set_available()
+            for drone in self.agent.drones:
+                self.presence.subscribe(str(drone.jid))
+            # print(self.presence.get_contacts())
+
+            
 
 
         

@@ -8,8 +8,8 @@ from spade.template import Template
 class Drone(Agent):
     def __init__(self, jid, password, capacity, autonomy, velocity, initialPos, numCenters):
         super().__init__(jid, password)
-        self.capacity = capacity
-        self.autonomy = autonomy
+        self.capacity = int(capacity[:-2])
+        self.autonomy = int(autonomy[:-2])
         self.velocity = velocity
         self.current_location = initialPos
         self.destination = None
@@ -54,11 +54,9 @@ class Drone(Agent):
 
         async def run(self):
             self.presence.set_available()
-            print('oii')
             self.presence.on_subscribe = self.on_subscribe
             self.presence.on_subscribed = self.on_subscribed
             self.presence.on_available = self.on_available
-
 
 
 
