@@ -26,20 +26,19 @@ class Center(Agent):
     def load_csv(self, df):
         center_info = df.iloc[0]
         self.center_id = center_info["id"]
-        self.latitude = center_info["latitude"]
-        self.longitude = center_info["longitude"]
+        self.latitude = float(center_info["latitude"].replace(',', '.'))
+        self.longitude = float(center_info["longitude"].replace(',', '.'))
         df.drop(df.index[0], inplace=True)
         df.reset_index(drop=True, inplace=True)
         for index, row in df.iterrows():    
-            self.add_order(row['id'], row['latitude'], row['longitude'], row['weight'])
+            self.add_order(row['id'], float(row['latitude'].replace(',', '.')), float(row['longitude'].replace(',', '.')), row['weight'])
 
     async def setup(self):
-        # self.b = self.DroneInfo()
-        # self.b.setDroneNumber(self.numDrones)
-        # self.add_behaviour(self.b)
-        self.add_behaviour(self.Behav1())
         print(f"Center {self.jid} is ready")
-        self.load_drones()
+        self.b = self.DroneInfo()
+        self.b.setInfo(self.drones, self.orders)
+        self.add_behaviour(self.b)
+        #self.load_drones()
 
     def load_drones(self):
         for drone in self.drones:
@@ -52,42 +51,23 @@ class Center(Agent):
 
     class DroneInfo(OneShotBehaviour):
         async def run(self):
-            for i in range(1, self.numDrones+1):
-                receiver = "drone" + str(i) + "@localhost"
-                msg = Message(to=receiver)
-                msg.set_metadata("performative", "query")  
+            for drone in self.drones:
+                receiver = str(drone.jid)
+                msg = Message()
+                msg.sender = str(self.agent.jid)
+                msg.to = receiver
+                msg.set_metadata("performative", "propose")  
                 # msg.set_metadata("ontology", "droneInfo")  
                 # msg.set_metadata("language", "OWL-S")      
-                msg.body = "drone" + str(i) + " Info"                    
-
+                msg.body = str(self.orders[0].order_id) + '/' +  str(self.orders[0].latitude) + '/' +  str(self.orders[0].longitude) + '/' +  str(self.orders[0].weight )   
                 await self.send(msg)
                 print("Message sent!")
+            
+        def setInfo(self, drones, orders):
+            self.drones = drones
+            self.orders = orders
 
-        def setDroneNumber(self, numDrones):
-            self.numDrones = numDrones
-    
 
-    class Behav1(OneShotBehaviour):
-        def on_available(self, jid, stanza):
-            print("[{}] Agent {} is available.".format(self.agent.name, jid.split("@")[0]))
-
-        def on_subscribed(self, jid):
-            print("[{}] Agent {} has accepted the subscription.".format(self.agent.name, jid.split("@")[0]))
-            print("[{}] Contacts List: {}".format(self.agent.name, self.agent.presence.get_contacts()))
-
-        def on_subscribe(self, jid):
-            print("[{}] Agent {} asked for subscription. Let's aprove it.".format(self.agent.name, jid.split("@")[0]))
-            self.presence.approve(jid)
-
-        async def run(self):
-            self.presence.on_subscribe = self.on_subscribe
-            self.presence.on_subscribed = self.on_subscribed
-            self.presence.on_available = self.on_available
-
-            self.presence.set_available()
-            for drone in self.agent.drones:
-                self.presence.subscribe(str(drone.jid))
-            # print(self.presence.get_contacts())
 
             
 

@@ -2,61 +2,60 @@ from spade.agent import Agent
 from spade.behaviour import OneShotBehaviour
 from spade.message import Message
 from spade.template import Template
-
+from utils import haversine
 
 
 class Drone(Agent):
-    def __init__(self, jid, password, capacity, autonomy, velocity, initialPos, numCenters):
+    def __init__(self, jid, password, capacity, autonomy, velocity, latitude, longitude):
         super().__init__(jid, password)
         self.capacity = int(capacity[:-2])
         self.autonomy = int(autonomy[:-2])
         self.velocity = velocity
-        self.current_location = initialPos
+        self.current_latitude = latitude
+        self.current_longitude = longitude
         self.destination = None
-        self.numCenters = numCenters
+        self.centers = dict()
 
     async def setup(self):
         print(f"Drone {self.jid} is ready")
-        self.add_behaviour(self.Presence())
+        b = self.RecvBehav()
+        template = Template()
+        template.set_metadata("performative", "propose")
+        self.add_behaviour(b, template)
+
+    def setCenters(self, center_id, center_lat, center_lon):
+        self.centers[center_id] = (center_lat, center_lon)
 
 
-    # class RecvBehav(OneShotBehaviour):
-    #     async def run(self):
-    #         msg = await self.receive(timeout=20) # wait for a message for 10 seconds
-    #         if msg:
-    #             print("Message received with content: {}".format(msg.body))
-    #         else:
-    #             print("Did not received any message after 10 seconds")
-
-    #         # stop agent from behaviour
-    #         await self.agent.stop()
-
-    # async def setup(self):
-    #     print("ReceiverAgent started")
-    #     b = self.RecvBehav()
-    #     template = Template()
-    #     template.set_metadata("performative", "query")
-    #     self.add_behaviour(b, template)
-
-
-    class Presence(OneShotBehaviour):
-        def on_available(self, jid, stanza):
-            print("[{}] Agent {} is available.".format(self.agent.name, jid.split("@")[0]))
-
-        def on_subscribed(self, jid):
-            print("[{}] Agent {} has accepted the subscription.".format(self.agent.name, jid.split("@")[0]))
-            print("[{}] Contacts List: {}".format(self.agent.name, self.agent.presence.get_contacts()))
-
-        def on_subscribe(self, jid):
-            print("[{}] Agent {} asked for subscription. Let's aprove it.".format(self.agent.name, jid.split("@")[0]))
-            self.presence.approve(jid)
-            self.presence.subscribe(jid)
-
+    class RecvBehav(OneShotBehaviour):
         async def run(self):
-            self.presence.set_available()
-            self.presence.on_subscribe = self.on_subscribe
-            self.presence.on_subscribed = self.on_subscribed
-            self.presence.on_available = self.on_available
+            msg = await self.receive(timeout=20) # wait for a message for 10 seconds
+            if msg:
+                order = msg.body.split("/")
+                print(order)
+                print(self.agent.centers)
+                if('center1' in msg.sender):
+                    sender = "center1"
+                else:
+                    sender = "center2"
+                
+                distance = haversine(self.agent.centers[sender][0], self.agent.centers[sender][1], self.agent.current_latitude, self.agent.current_longitude)
+                print(distance)
+                #distance = haversine(float(order[1]), float(order[2]), self.agent.current_latitude, self.agent.current_longitude)
+
+                if (int(order[3]) > self.agent.capacity):
+                    print('nao')
+                #elif (distance > ):
+
+            else:
+                print("Did not received any message after 10 seconds")
+
+            # stop agent from behaviour
+            await self.agent.stop()
+
+
+
+
 
 
 
