@@ -51,12 +51,8 @@ class Environment(Agent):
         # await center2.start()
 
         centers.append(center1)
-
-
-
     
     async def setup(self):
-        print(f"Environment {self.jid} is ready")
         await self.initiate()
 
 

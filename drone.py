@@ -17,7 +17,6 @@ class Drone(Agent):
         self.centers = dict()
 
     async def setup(self):
-        print(f"Drone {self.jid} is ready")
         b = self.RecvBehav()
         template = Template()
         template.set_metadata("performative", "propose")
@@ -29,23 +28,47 @@ class Drone(Agent):
 
     class RecvBehav(OneShotBehaviour):
         async def run(self):
-            msg = await self.receive(timeout=20) # wait for a message for 10 seconds
+            msg = await self.receive(timeout=10) # wait for a message for 10 seconds
             if msg:
                 order = msg.body.split("/")
-                print(order)
-                print(self.agent.centers)
                 if('center1' in msg.sender):
                     sender = "center1"
                 else:
                     sender = "center2"
                 
-                distance = haversine(self.agent.centers[sender][0], self.agent.centers[sender][1], self.agent.current_latitude, self.agent.current_longitude)
-                print(distance)
-                #distance = haversine(float(order[1]), float(order[2]), self.agent.current_latitude, self.agent.current_longitude)
+                distance_to_center = haversine(self.agent.centers[sender][0], self.agent.centers[sender][1], self.agent.current_latitude, self.agent.current_longitude)
+                distance_to_order = haversine(float(order[1]), float(order[2]), self.agent.current_latitude, self.agent.current_longitude)
+                distance_return_to_center1 = haversine(float(order[1]), float(order[2]), self.agent.centers['center1'][0], self.agent.centers['center1'][1])
+                distance_return_to_center2 = haversine(float(order[1]), float(order[2]), self.agent.centers['center2'][0], self.agent.centers['center2'][1])
 
+                total_distance1 = distance_to_center + distance_to_order + distance_return_to_center1
+                total_distance2 = distance_to_center + distance_to_order + distance_return_to_center2
+
+                print(msg.sender)
+                msg = Message(to = str(msg.sender))
+                msg.sender = str(self.agent.jid)
                 if (int(order[3]) > self.agent.capacity):
                     print('nao')
-                #elif (distance > ):
+                    msg.set_metadata("performative", "reject-proposal")  
+                    msg.body = 'Reject'   
+                elif (total_distance1 > self.agent.autonomy):
+                    print('nao')
+                    msg.set_metadata("performative", "reject-proposal") 
+                    msg.body = 'Reject'   
+                     
+                elif (total_distance2 > self.agent.autonomy):
+                    print('nao')
+                    msg.set_metadata("performative", "reject-proposal") 
+                    msg.body = 'Reject'   
+                else:
+                    print('going to deliver')
+                    msg.set_metadata("performative", "accept-proposal")
+                    msg.body = 'Accept'   
+
+
+                    # call function to deliver
+                await self.send(msg)
+                
 
             else:
                 print("Did not received any message after 10 seconds")
