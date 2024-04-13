@@ -10,18 +10,19 @@ class Order:
         self.latitude = latitude
         self.longitude = longitude
         self.weight = weight
+        self.pending = False
 
 
 class Center(Agent):
     def __init__(self, jid, password, df, drones):
         super().__init__(jid, password)
-        self.orders = []
+        self.orders = dict()
         self.load_data(df)
         self.drones = drones
         
     def add_order(self, order_id, latitude, longitude, weight):
         order = Order(order_id, latitude, longitude, weight)
-        self.orders.append(order)
+        self.orders[order_id] = order
 
     def load_data(self, df):
         center_info = df.iloc[0]
@@ -43,24 +44,38 @@ class Center(Agent):
         response_handler = self.ResponseHandler()
         self.add_behaviour(response_handler, template)
 
+    def assignOrders(self, drone_id):
+        capacity = self.drones[drone_id].capacity
+        orders_selected = list()
+        for orderId in self.orders.keys():
+            order = self.orders[orderId]
+            if(not order.pending):
+                if(capacity - order.weight >= 0):
+                    capacity -= order.weight
+                    order.pending = True
+                    orders_selected.append(order)
+                    
+            if(capacity == 0):
+                break
+        return orders_selected
+
+
     class FirstIteration(OneShotBehaviour):
         async def run(self):
-            assigned_drones = set()
-
-            for order in self.orders[:4]:
-                for drone in self.drones:
-                    if drone.jid in assigned_drones:
-                        continue
-                    receiver = str(drone.jid)
-                    msg = Message()
-                    msg.sender = str(self.agent.jid)
-                    msg.to = receiver
-                    msg.set_metadata("performative", "propose")    
-                    msg.body = str(order.order_id) + '/' +  str(order.latitude) + '/' +  str(order.longitude) + '/' +  str(order.weight)   
-                    await self.send(msg)
-                    print("Message sent!")
-                    assigned_drones.add(drone.jid)  # Mark the order as assigned
-                    break
+            for drone_id, drone in self.agent.drones.items():
+                if(drone.current_latitude != self.agent.latitude or drone.current_longitude != self.agent.longitude):
+                    continue
+                orders_selected = self.agent.assignOrders(drone_id)
+                msg = Message()
+                msg.sender = str(self.agent.jid)
+                msg.to = drone_id + "@localhost"
+                msg.set_metadata("performative", "propose") 
+                content = ""
+                for order in orders_selected:
+                    content += "order:" + str(order.order_id) + '/' +  str(order.latitude) + '/' +  str(order.longitude) + '/' +  str(order.weight)   
+                msg.body = content   
+                await self.send(msg)
+                        
             
         def setInfo(self, drones, orders):
             self.drones = drones
@@ -70,14 +85,32 @@ class Center(Agent):
         async def run(self):
             msg = await self.receive(timeout=10)  # Adjust timeout as needed
             if msg:
-                print(f"Received message: {msg.body}")
-                # Here you can parse the message and take appropriate actions based on the response
+                order_ids = msg.body.split("/")
+                order_ids = [item for item in order_ids if item != ""]
+                print(msg.metadata['performative'])
+                if msg.metadata['performative'] == "reject-proposal":
+                    for order_id in order_ids:
+                        self.agent.orders[order_id].pending = False
+
+                elif msg.metadata['performative'] == "accept-proposal":
+                    for order_id in order_ids:
+                        self.agent.orders.pop(order_id)
+
+                elif msg.metadata['performative'] == "inform":
+                    drone_id = str(msg.sender).split("@")[0]
+                    orders_selected = self.agent.assignOrders(drone_id)
+
+                    msg = Message()
+                    msg.sender = str(self.agent.jid)
+                    msg.to = drone_id + "@localhost"
+                    msg.set_metadata("performative", "propose") 
+                    content = ""
+                    for order in orders_selected:
+                        content += "order:" + str(order.order_id) + '/' +  str(order.latitude) + '/' +  str(order.longitude) + '/' +  str(order.weight)   
+                    msg.body = content   
+                    await self.send(msg)
+
             else:
                 print("No response received")
-
-
-
-            
-
 
         

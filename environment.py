@@ -12,7 +12,7 @@ class Environment(Agent):
 
     def __init__(self, jid, password):
         super().__init__(jid, password)
-        self.drones = []
+        self.drones = dict()
         self.centers = []
 
     async def initiate(self):
@@ -42,13 +42,13 @@ class Environment(Agent):
             drone.setCenters('center2', center2_lat, center2_lon)
 
             await drone.start()
-            drones.append(drone)
+            self.drones[row["id"]] = drone
     
-        center1 = Center("center1@localhost", "password", df_center1, drones)
+        center1 = Center("center1@localhost", "password", df_center1, self.drones)
         await center1.start()
 
-        # center2 = Center("center2@localhost", "password", df_center2, drones)
-        # await center2.start()
+        center2 = Center("center2@localhost", "password", df_center2, self.drones)
+        await center2.start()
 
         centers.append(center1)
     
