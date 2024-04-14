@@ -35,16 +35,11 @@ class Center(Agent):
             self.add_order(row['id'], float(row['latitude'].replace(',', '.')), float(row['longitude'].replace(',', '.')), row['weight'])
 
     async def setup(self):
-        first_iteration = self.FirstIteration()
-        first_iteration.setInfo(self.drones, self.orders)
-        self.add_behaviour(first_iteration)
 
-        template = Template()
-        #template.set_metadata("performative", "propose")
         response_handler = self.ResponseHandler()
-        self.add_behaviour(response_handler, template)
+        self.add_behaviour(response_handler)
 
-    def assignOrders(self, drone_id):
+    def assign_orders(self, drone_id):
         capacity = self.drones[drone_id].capacity
         orders_selected = list()
         for orderId in self.orders.keys():
@@ -60,27 +55,6 @@ class Center(Agent):
         return orders_selected
 
 
-    class FirstIteration(OneShotBehaviour):
-        async def run(self):
-            for drone_id, drone in self.agent.drones.items():
-                if(drone.current_latitude != self.agent.latitude or drone.current_longitude != self.agent.longitude):
-                    continue
-                orders_selected = self.agent.assignOrders(drone_id)
-                msg = Message()
-                msg.sender = str(self.agent.jid)
-                msg.to = drone_id + "@localhost"
-                msg.set_metadata("performative", "propose") 
-                content = ""
-                for order in orders_selected:
-                    content += "order:" + str(order.order_id) + '/' +  str(order.latitude) + '/' +  str(order.longitude) + '/' +  str(order.weight)   
-                msg.body = content   
-                await self.send(msg)
-                        
-            
-        def setInfo(self, drones, orders):
-            self.drones = drones
-            self.orders = orders
-
     class ResponseHandler(CyclicBehaviour):
         async def run(self):
             msg = await self.receive(timeout=10)  # Adjust timeout as needed
@@ -88,6 +62,7 @@ class Center(Agent):
                 order_ids = msg.body.split("/")
                 order_ids = [item for item in order_ids if item != ""]
                 print(msg.metadata['performative'])
+                print(msg.sender)
                 if msg.metadata['performative'] == "reject-proposal":
                     for order_id in order_ids:
                         self.agent.orders[order_id].pending = False
@@ -98,7 +73,7 @@ class Center(Agent):
 
                 elif msg.metadata['performative'] == "inform":
                     drone_id = str(msg.sender).split("@")[0]
-                    orders_selected = self.agent.assignOrders(drone_id)
+                    orders_selected = self.agent.assign_orders(drone_id)
 
                     msg = Message()
                     msg.sender = str(self.agent.jid)
