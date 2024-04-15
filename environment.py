@@ -54,39 +54,15 @@ class Environment(Agent):
             await drone.start()
             self.drones[row["id"]] = drone
     
-        # center1 = Center("center1@localhost", "password", df_center1, self.drones)
-        # await center1.start()
+        center1 = Center("center1@localhost", "password", df_center1, self.drones)
+        await center1.start()
 
         # center2 = Center("center2@localhost", "password", df_center2, self.drones)
         # await center2.start()
 
     
     async def setup(self):
-        res_weather = self.ResponseHandler()
-        template = Template()
-        template.set_metadata("performative", "query")
-    
-        self.add_behaviour(res_weather, template)
         await self.initiate()
-
-
-
-    class ResponseHandler(OneShotBehaviour):
-        async def run(self):
-            print('oi')
-            msg = await self.receive(timeout=10) # wait for a message for 10 seconds
-            if msg:
-                if msg.metadata['performative'] == "query":
-                    weather = self.agent.random_weather()
-
-                    new_msg = Message(to = str(msg.sender))
-                    new_msg.sender = str(self.agent.jid)
-                    new_msg.set_metadata("performative", "inform")
-                    new_msg.body = weather
-
-                    await self.send(new_msg)
-
-                    print("sent weather")
 
     
 

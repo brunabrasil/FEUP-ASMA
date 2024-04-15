@@ -3,6 +3,7 @@ from spade.behaviour import OneShotBehaviour, CyclicBehaviour
 from spade.message import Message
 from spade.template import Template
 from utils import haversine
+from threading import Timer
 import asyncio
 
 
@@ -13,47 +14,27 @@ class Drone(Agent):
         self.autonomy = int(autonomy[:-2])
         self.current_autonomy = self.autonomy
         self.velocity = float(velocity[:-3])
-        self.current_velocity = self.velocity
         self.current_latitude = latitude
         self.current_longitude = longitude
         self.centers = dict()
         self.total_distance = 0
         self.total_time = 0
-        self.received_proposes = dict()
+        self.available = True
         
 
     async def setup(self):
         print('drone setup')
-        #while(True):
 
-        self.rcv_weather = self.RecvWeather() # get weather
-        template_weather = Template()
-        self.add_behaviour(self.rcv_weather, template_weather)
-            
-            # self.inform_availability = self.InformAvailability() # inform that is available
-            # self.add_behaviour(self.inform_availability)
-
-            # rcv_propose = self.RecvProposes() # get proposals
-            # template = Template()
-            # template.set_metadata("performative", "propose")
-            # self.add_behaviour(rcv_propose, template)
-
-            # choose_proposal = self.ChooseProposal() # choose proposal
-            # self.add_behaviour(choose_proposal)
+        rcv_propose = self.RecvProposes() # get proposals
+        #template = Template()
+        #template.set_metadata("performative", "request")
+        self.add_behaviour(rcv_propose)
+        # ConfirmDeliver = self.ConfirmDeliver()
+        # self.add_behaviour(ConfirmDeliver)
         
 
     def set_centers(self, center_id, center_lat, center_lon):
         self.centers[center_id] = (center_lat, center_lon)
-        
-
-    def set_weather(self, weather):
-        self.weather = weather
-        if weather == "sunny":
-            self.current_velocity = self.velocity
-        elif weather == "raining":
-            self.current_velocity = self.velocity * 0.7
-        elif weather == "storm":
-            self.current_velocity = self.velocity * 0.5
 
     def go_to_center(self):
         self.current_autonomy = self.autonomy
@@ -62,17 +43,47 @@ class Drone(Agent):
         self.go_to_center()
         self.current_autonomy -= total_distance_orders
         self.total_distance += distance_to_center + total_distance_orders
-        self.total_time += (distance_to_center + total_distance_orders) * 1000 / self.current_velocity
+        self.total_time += (distance_to_center + total_distance_orders) * 1000 / self.velocity
         self.current_latitude = latitude
         self.current_longitude = longitude
+
+
+    def calculate_duration(self, sender, orders):
+        distance_to_center = haversine(self.centers[sender][0], self.centers[sender][1], self.current_latitude, self.current_longitude)
+        total_orders_distance = 0
+        if ( distance_to_center >= self.autonomy):
+            return -1
         
+        for i in range (0, len(orders)): # first one is a empty string
+            order = orders[i]
+            order = order.split("/")
+            
+            if(i == 0):
+                distance_to_order = haversine(float(order[1]), float(order[2]), self.centers[sender][0], self.centers[sender][1])
+
+            else:
+                distance_to_order = haversine(float(order[1]), float(order[2]), float(orders[i-1].split("/")[1]),float(orders[i-1].split("/")[2]))
+            
+            total_orders_distance += distance_to_order
+            
+            if(i == len(orders) - 1):
+                distance_return_to_center1 = haversine(float(order[1]), float(order[2]), self.centers['center1'][0], self.centers['center1'][1])
+                distance_return_to_center2 = haversine(float(order[1]), float(order[2]), self.centers['center2'][0], self.centers['center2'][1])
+
+        if ((total_orders_distance + distance_return_to_center1 <= self.autonomy )
+            or (total_orders_distance + distance_return_to_center2 <= self.autonomy)): 
+            duration = (total_orders_distance + distance_to_center) * 1000 / self.velocity    
+            
+            return duration, distance_to_center, total_orders_distance
+        else:
+            return -1
+
 
     class RecvProposes(CyclicBehaviour):
         async def run(self):
-            self.agent.inform_availability.join() # wait to tell centers that its available
-            msg = await self.receive(timeout=10) # wait for a message for 10 seconds
+            msg = await self.receive(timeout=10) # wait for a request
             if msg:
-                if msg.metadata['performative'] == "propose":
+                if msg.metadata['performative'] == "request":
                     if('center1' in msg.sender):
                         sender = "center1"
                     else:
@@ -81,102 +92,44 @@ class Drone(Agent):
                     orders = msg.body.split("order:")
                     orders = [item for item in orders if item != ""]
 
-                    self.agent.received_proposes[sender] = orders
+                    duration, distance_to_center, total_orders_distance = self.agent.calculate_duration(sender, orders) #calculate duration to deliver order(s)
 
-                    if set(self.agent.received_proposes.keys()) == set(self.agent.centers.keys()):
-                        self.agent.received_proposes = dict()
-                        await self.agent.stop()                     
+                    send_msg = Message(to = (sender + "@localhost"))
+                    send_msg.sender = str(self.agent.jid)
+                    print("me: " +  str(self.agent.jid))
+                    # respond refusing or agreeing to deliver
+                    if(duration == -1 or not self.agent.available):
+                        send_msg.set_metadata("performative", "refuse")  
+                        send_msg.body = str(-1)
+
+                    else:
+                        send_msg.set_metadata("performative", "agree")
+                        send_msg.body = str(duration)
+
+                    await self.send(send_msg)
+
+                    response_msg = await self.receive(timeout=10)  # receive decision of center (if drone is going to deliver or not)
+                    if response_msg:
+                        if response_msg.metadata['performative'] == "inform":
+                            print(response_msg)
+                            if response_msg.body == "Deliver":
+                                print("DELIVERED ORDERRRRRR")
+                                self.agent.deliver_order(distance_to_center, total_orders_distance, float(orders[len(orders)-1].split("/")[1]), float(orders[len(orders)-1].split("/")[2]))
+                                self.agent.available = False
+                                print("Time: " + str(duration/100))
+                                t = Timer(duration/100, self.set_available)
+                                t.start()
+                        
+                        
+
                     
             else:
                 print("Did not received any message after 10 seconds")
+                
+                
+        def set_available(self):
+            self.agent.available = True
 
-    class ChooseProposal(OneShotBehaviour):
-
-        async def run(self):
-            self.agent.rcv_propose.join() ## wait for the 
-            orders_distance = dict()
-            for center_id, orders in self.agent.received_proposes.items():
-
-                distance_to_center = haversine(self.agent.centers[center_id][0], self.agent.centers[center_id][1], self.agent.current_latitude, self.agent.current_longitude)
-                if (distance_to_center <= self.agent.current_autonomy):
-                    total_distance = 0
-                    total_capacity = 0
-
-                    for i in range (0, len(orders)): # first one is a empty string
-                        order = orders[i]
-                        order = order.split("/")
-                        total_capacity += int(order[3])
-                        
-                        if(i == 0):
-                            distance_to_order = haversine(float(order[1]), float(order[2]), self.agent.centers[center_id][0], self.agent.centers[center_id][1])
-
-                        else:
-                            distance_to_order = haversine(float(order[1]), float(order[2]), float(orders[i-1].split("/")[1]),float(orders[i-1].split("/")[2]))
-                        
-                        total_distance += distance_to_order
-                        if(i == len(orders) - 1):
-                            distance_return_to_center1 = haversine(float(order[1]), float(order[2]), self.agent.centers['center1'][0], self.agent.centers['center1'][1])
-                            distance_return_to_center2 = haversine(float(order[1]), float(order[2]), self.agent.centers['center2'][0], self.agent.centers['center2'][1])
-                            if((total_distance + distance_return_to_center1 <= self.agent.autonomy or total_distance + distance_return_to_center2 <= self.agent.autonomy) and total_capacity <= self.agent.capacity):                    
-                                orders_distance[center_id] = total_distance
-
-            minimum_proposal_center = min(orders_distance, key=orders_distance.get)
-            print(orders_distance)
-
-            for center_id in self.agent.received_proposes.keys():
-                msg = Message(to = (center_id + "@localhost"))
-                msg.sender = str(self.agent.jid)
-                if center_id == minimum_proposal_center:
-                    msg.set_metadata("performative", "accept-proposal")
-                    self.agent.deliver_order(distance_to_center, total_distance, float(orders[len(orders)-1].split("/")[1]), float(orders[len(orders)-1].split("/")[2]))
-            
-                else:
-                    msg.set_metadata("performative", "reject-proposal")  
-            
-                msg.body = ""
-                for order in orders:
-                    msg.body += order.split("/")[0] + "/"
-
-                await self.send(msg)
-            
-            await self.agent.stop()
-
-                        
-    class InformAvailability(OneShotBehaviour):
-        async def run(self):
-            self.agent.rcv_weather.join() # wait to know the weather
-
-            for center_id in self.agent.centers.keys():
-                msg = Message(to= (center_id + "@localhost"))
-                msg.set_metadata("performative", "inform")
-                msg.body = self.agent.weather
-
-                await self.send(msg)
-
-            # stop agent from behaviour
-            await self.agent.stop()
-
-
-    class RecvWeather(OneShotBehaviour):
-        async def run(self):
-
-            print('ask weather')
-
-            msg = Message(to="environment@localhost")
-            msg.set_metadata("performative", "query")
-            msg.body = "Weather" 
-
-            await self.send(msg)
-
-
-            response_msg = await self.receive(timeout=10) # wait for a message for 10 seconds
-            if response_msg:
-                self.agent.set_weather(response_msg.body)
-            else:
-                self.agent.set_weather("sunny")
-            
-            # stop agent from behaviour
-            await self.agent.stop()
 
 
 

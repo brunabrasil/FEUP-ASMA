@@ -3,6 +3,7 @@ from spade.behaviour import CyclicBehaviour, OneShotBehaviour
 from spade.message import Message
 from spade.template import Template
 import pandas as pd
+import asyncio
 
 class Order:
     def __init__(self, order_id, latitude, longitude, weight):
@@ -10,7 +11,6 @@ class Order:
         self.latitude = latitude
         self.longitude = longitude
         self.weight = weight
-        self.pending = False
 
 
 class Center(Agent):
@@ -19,6 +19,8 @@ class Center(Agent):
         self.orders = dict()
         self.load_data(df)
         self.drones = drones
+        self.responses = dict()
+        self.drones_left = drones.copy()
         
     def add_order(self, order_id, latitude, longitude, weight):
         order = Order(order_id, latitude, longitude, weight)
@@ -39,51 +41,77 @@ class Center(Agent):
         response_handler = self.ResponseHandler()
         self.add_behaviour(response_handler)
 
-    def assign_orders(self, drone_id):
-        capacity = self.drones[drone_id].capacity
-        orders_selected = list()
-        for orderId in self.orders.keys():
-            order = self.orders[orderId]
-            if(not order.pending):
-                if(capacity - order.weight >= 0):
-                    capacity -= order.weight
-                    order.pending = True
-                    orders_selected.append(order)
-                    
-            if(capacity == 0):
-                break
-        return orders_selected
-
-
     class ResponseHandler(CyclicBehaviour):
         async def run(self):
-            msg = await self.receive(timeout=10)  # Adjust timeout as needed
-            if msg:
-                order_ids = msg.body.split("/")
-                order_ids = [item for item in order_ids if item != ""]
-                print(msg.metadata['performative'])
-                print(msg.sender)
-                if msg.metadata['performative'] == "reject-proposal":
-                    for order_id in order_ids:
-                        self.agent.orders[order_id].pending = False
+            
+            orders_selected = []
+            for order_id, order in self.agent.orders.items():
+                total_weight = sum(order.weight for order in orders_selected)
+                if total_weight+order.weight <= 20:
+                    orders_selected.append(order)
+                else:
+                    break
+            
+            content = ""
+            for order in orders_selected:
+                content += "order:" + str(order.order_id) + '/' +  str(order.latitude) + '/' +  str(order.longitude) + '/' +  str(order.weight)   
 
-                elif msg.metadata['performative'] == "accept-proposal":
-                    for order_id in order_ids:
-                        self.agent.orders.pop(order_id)
+        
+            msg = Message()
+            msg.sender = str(self.agent.jid)
+            msg.set_metadata("performative", "request") 
+            msg.body = content
 
-                elif msg.metadata['performative'] == "inform":
-                    drone_id = str(msg.sender).split("@")[0]
-                    orders_selected = self.agent.assign_orders(drone_id)
+            for drone_id in self.agent.drones.keys():
+                print(drone_id)
+                msg.to = drone_id + "@localhost"
+                await self.send(msg)
+                print("\n")
+                response_msg = await self.receive(timeout=10)  # Adjust timeout as needed
+                
+                if response_msg:
+                    print("response:")
+                    print(response_msg)
+                    print("\n")
 
-                    msg = Message()
-                    msg.sender = str(self.agent.jid)
-                    msg.to = drone_id + "@localhost"
-                    msg.set_metadata("performative", "propose") 
-                    content = ""
-                    for order in orders_selected:
-                        content += "order:" + str(order.order_id) + '/' +  str(order.latitude) + '/' +  str(order.longitude) + '/' +  str(order.weight)   
-                    msg.body = content   
-                    await self.send(msg)
+                    if response_msg.metadata['performative'] == "refuse":
+                        self.agent.responses[response_msg.sender] = float('inf')
+
+                    elif response_msg.metadata['performative'] == "agree":
+                        self.agent.responses[response_msg.sender] = float(response_msg.body)
+
+            if(len(self.agent.responses) == len(self.agent.drones)):
+                
+
+                minimum_time_drone = min(self.agent.responses, key=self.agent.responses.get)
+                for drone_id in self.agent.drones.keys():
+                    new_msg = Message()
+                    new_msg.sender = str(self.agent.jid)
+                    new_msg.set_metadata("performative", "inform") 
+                    new_msg.to = drone_id + "@localhost"
+                    if (str(minimum_time_drone) == (drone_id + "@localhost")):
+                        if(self.agent.responses[minimum_time_drone] != float('inf')):
+                            new_msg.body = "Deliver"
+
+                            for order in orders_selected:
+                                self.agent.orders.pop(order.order_id)
+                        else:
+                            new_msg.body = "Don't deliver"
+
+                    else:
+                        new_msg.body = "Don't deliver"
+                    print("MESSAGE")
+                    print(drone_id)
+                    print(new_msg.body)
+                    print("\n")
+
+                    await self.send(new_msg)
+
+                self.agent.responses = dict()
+                self.agent.drones_left = self.agent.drones.copy()
+
+                await asyncio.sleep(1)
+                    
 
             else:
                 print("No response received")
