@@ -21,6 +21,7 @@ class Center(Agent):
         self.drones = drones
         self.responses = dict()
         self.drones_left = drones.copy()
+        self.count_refuses = 0
         
     def add_order(self, order_id, latitude, longitude, weight):
         order = Order(order_id, latitude, longitude, weight)
@@ -42,9 +43,15 @@ class Center(Agent):
         self.add_behaviour(response_handler)
 
     class ResponseHandler(CyclicBehaviour):
+        async def on_end(self):
+            await self.agent.stop()
+
         async def run(self):
-            
+            await asyncio.sleep(1)
+
             orders_selected = []
+            
+            print(str(self.agent.jid))
             for order_id, order in self.agent.orders.items():
                 total_weight = sum(order.weight for order in orders_selected)
                 if total_weight+order.weight <= 20:
@@ -53,35 +60,45 @@ class Center(Agent):
                     break
             
             content = ""
+            if(self.agent.count_refuses >= 4):
+                orders_selected.pop()
+
             for order in orders_selected:
+                print(order.order_id)
                 content += "order:" + str(order.order_id) + '/' +  str(order.latitude) + '/' +  str(order.longitude) + '/' +  str(order.weight)   
 
-        
+
             msg = Message()
             msg.sender = str(self.agent.jid)
             msg.set_metadata("performative", "request") 
             msg.body = content
 
             for drone_id in self.agent.drones.keys():
-                print(drone_id)
+
                 msg.to = drone_id + "@localhost"
                 await self.send(msg)
-                print("\n")
+                
                 response_msg = await self.receive(timeout=10)  # Adjust timeout as needed
                 
                 if response_msg:
+                    print(drone_id)
                     print("response:")
-                    print(response_msg)
+                    print(response_msg.sender)
+                    print(response_msg.body)
                     print("\n")
 
                     if response_msg.metadata['performative'] == "refuse":
                         self.agent.responses[response_msg.sender] = float('inf')
+                        if response_msg.body == "-1":
+                            self.agent.count_refuses +=1
 
                     elif response_msg.metadata['performative'] == "agree":
                         self.agent.responses[response_msg.sender] = float(response_msg.body)
+                        self.agent.count_refuses = 0
+                else:
+                    print("No response received")
 
             if(len(self.agent.responses) == len(self.agent.drones)):
-                
 
                 minimum_time_drone = min(self.agent.responses, key=self.agent.responses.get)
                 for drone_id in self.agent.drones.keys():
@@ -92,7 +109,6 @@ class Center(Agent):
                     if (str(minimum_time_drone) == (drone_id + "@localhost")):
                         if(self.agent.responses[minimum_time_drone] != float('inf')):
                             new_msg.body = "Deliver"
-
                             for order in orders_selected:
                                 self.agent.orders.pop(order.order_id)
                         else:
@@ -100,20 +116,21 @@ class Center(Agent):
 
                     else:
                         new_msg.body = "Don't deliver"
-                    print("MESSAGE")
-                    print(drone_id)
-                    print(new_msg.body)
-                    print("\n")
 
                     await self.send(new_msg)
 
                 self.agent.responses = dict()
                 self.agent.drones_left = self.agent.drones.copy()
-
-                await asyncio.sleep(1)
+            
+            if(len(self.agent.orders)== 0):
+                print('FINISH')
+                for drone_id in self.agent.drones.keys():
+                    finish_msg = Message()
+                    finish_msg.sender = str(self.agent.jid)
+                    finish_msg.to = drone_id + "@localhost"
+                    finish_msg.set_metadata("performative", "inform")
+                    finish_msg.body = "Orders finished"
+                    await self.send(finish_msg)
+                self.kill()
                     
-
-            else:
-                print("No response received")
-
         

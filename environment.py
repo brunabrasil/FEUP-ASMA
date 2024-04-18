@@ -60,6 +60,9 @@ class Environment(Agent):
         # center2 = Center("center2@localhost", "password", df_center2, self.drones)
         # await center2.start()
 
+        # await spade.wait_until_finished(center1)
+        # await center1.stop()
+
     
     async def setup(self):
         await self.initiate()
