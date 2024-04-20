@@ -1,60 +1,55 @@
-import pandas as pd
-from drone import Drone
-from center import Center
 from spade.agent import Agent
+from spade.behaviour import CyclicBehaviour
+from spade.message import Message
+import random
+from threading import Timer
 
 class Environment(Agent):
 
-    def __init__(self, jid, password):
+    def __init__(self, jid, password, drones):
         super().__init__(jid, password)
-        self.drones = dict()
-        
-    # Method to initialize the environment (drones and centers)
-    async def initiate(self):
-        # Read center and drones csv into a dataframe
-        df_center1 = pd.read_csv("data/delivery_center1.csv", delimiter=";")
-        df_center2 = pd.read_csv("data/delivery_center2.csv", delimiter=";")
-        df_drones = pd.read_csv("data/delivery_drones.csv", delimiter=";")
+        self.weather = ['sunny', 'raining', 'storm']
+        self.drones = drones
+        self.send_weather = True
+        self.finished_centers = set()  # Centers that dont have anymore orders
 
-        # Get the coordinates of the centers
-        center1_lat = float(df_center1.iloc[0]['latitude'].replace(',', '.'))
-        center1_lon = float(df_center1.iloc[0]['longitude'].replace(',', '.'))
-        center2_lat = float(df_center2.iloc[0]['latitude'].replace(',', '.'))
-        center2_lon = float(df_center2.iloc[0]['longitude'].replace(',', '.'))
+    def random_weather(self):
+        # Define the probabilities for each weather
+        probabilities = [0.6, 0.3, 0.1]
+        selected = random.choices(self.weather, weights=probabilities, k=1)
+        return selected[0]
+    
+    class ResponseHandler(CyclicBehaviour):
+        def set_available(self):
+            self.agent.send_weather = True
+        async def on_end(self):
+            await self.agent.stop()
 
-        for index, row in df_drones.iterrows():
-            # get the coordinates of the drones according to the center in which they are    
-            if(row['initialPos'] == 'center1'):
-                lat = center1_lat
-                lon = center1_lon
-            elif(row['initialPos'] == 'center2'):
-                lat = center2_lat
-                lon = center2_lon
-
-            # Create the drones
-            drone = Drone(row['id'] + "@localhost", "password", row['capacity'], row['autonomy'], row['velocity'], lat, lon)
+        async def run(self):
             
-            # Let drones know the centers position
-            drone.set_centers('center1', center1_lat, center1_lon)
-            drone.set_centers('center2', center2_lat, center2_lon)
+            if(self.agent.send_weather):
+                weather = self.agent.random_weather()
+                for drone_id in self.agent.drones.keys():
+                    send_msg = Message(to = (drone_id + "@localhost"))
+                    send_msg.sender = str(self.agent.jid)
+                    send_msg.set_metadata("performative", "inform")
+                    send_msg.body = weather
+                    await self.send(send_msg)
+                    
+                self.agent.send_weather = False
+                t = Timer(5, self.set_available)
+                t.start()
 
-            await drone.start()
-            self.drones[row["id"]] = drone
+            msg = await self.receive(timeout=10)
+            if msg:
+                if msg.metadata['performative'] == "inform" and msg.body == "Orders finished":
+                    self.agent.finished_centers.add(msg.sender)
+                    if len(self.agent.finished_centers) == 2:
+                        self.kill()
+                
 
-        # Create the centers
-        center1 = Center("center1@localhost", "password", df_center1, self.drones)
-        await center1.start()
-
-        center2 = Center("center2@localhost", "password", df_center2, self.drones)
-        await center2.start()
-
-        # await spade.wait_until_finished(center1)
-        # await center1.stop()
-
-    
     async def setup(self):
-        await self.initiate()
-
-    
+        res_weather = self.ResponseHandler()
+        self.add_behaviour(res_weather)
 
 

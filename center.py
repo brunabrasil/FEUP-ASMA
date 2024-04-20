@@ -105,7 +105,6 @@ class Center(Agent):
 
             # Verify if has response of all drones
             if(len(self.agent.responses) == len(self.agent.drones)):
-
                 # Choose drone that takes less time to deliver
                 minimum_time_drone = min(self.agent.responses, key=self.agent.responses.get)
                 for drone_id in self.agent.drones.keys():
@@ -143,6 +142,10 @@ class Center(Agent):
                     finish_msg.set_metadata("performative", "inform")
                     finish_msg.body = "Orders finished"
                     await self.send(finish_msg)
+                
+                finish_msg.to = "environment@localhost"
+                await self.send(finish_msg)
+                
                 self.kill()
                     
         
