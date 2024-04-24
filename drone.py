@@ -1,10 +1,11 @@
 from spade.agent import Agent
 from spade.behaviour import CyclicBehaviour
 from spade.message import Message
-from spade.template import Template
 from utils import haversine
 from threading import Timer
-from TSP import tsp_brute_force
+from utils import tsp_brute_force
+import asyncio
+import time
 
 
 class Drone(Agent):
@@ -28,7 +29,7 @@ class Drone(Agent):
         self.max_time = float('-inf')
         self.occupation = []
         self.current_capacity = 0
-
+        self.start_time = time.time() 
         
     async def setup(self):
         rcv_propose = self.DroneHandler()
@@ -133,12 +134,16 @@ class Drone(Agent):
     class DroneHandler(CyclicBehaviour):
         #Stop agent when all orders in all centers are delivered
         async def on_end(self):
-            print(str(self.agent.jid).split("@")[0] + ":")
-            occupation_rate = sum(self.agent.occupation)/len(self.agent.occupation)
-            print("Occupation rate: " + str(occupation_rate))
-            print("Total time: " + str(self.agent.total_time))
+            end_time = time.time()
+            total_lifetime = end_time - self.agent.start_time
+            print("Metrics " + str(self.agent.jid).split("@")[0] + ":")
+            #occupation_rate = sum(self.agent.occupation)/len(self.agent.occupation)
+            occupation_rate = self.agent.total_time/(total_lifetime*200)
+            print("Total time travelling: " + str(self.agent.total_time))
             print("Min time: " + str(self.agent.min_time))
             print("Max time: " + str(self.agent.max_time))
+            print("Total distance: " + str(self.agent.total_distance))
+            print("Occupation rate: " + str(occupation_rate*100)+"%")
             print("\n")
             await self.agent.stop()
 
@@ -184,7 +189,6 @@ class Drone(Agent):
                 
                 # Deal with confirm messages of centers
                 elif msg.metadata['performative'] == "inform":
-                    print(msg.sender)
                     # Deliver order that has accepted
                     if msg.body == "Deliver":
                         print(str(self.agent.jid).split("@")[0] + " delivering")
@@ -235,8 +239,6 @@ class Drone(Agent):
                             self.kill()
 
                     if "environment" in msg.sender:
-                        print("Weather")
-                        print(msg.body)
                         self.agent.set_weather(msg.body)
 
                         

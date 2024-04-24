@@ -130,22 +130,23 @@ class Center(Agent):
                 self.agent.responses = dict()
                 self.agent.drones_left = self.agent.drones.copy()
             
-            # When all orders are completed, inform the drones and stop its self
-            if(len(self.agent.orders)== 0):
-                print("\n")
-                print(str(self.agent.jid).split("@")[0] + ' finished orders')
-                print("\n")
-                for drone_id in self.agent.drones.keys():
-                    finish_msg = Message()
-                    finish_msg.sender = str(self.agent.jid)
-                    finish_msg.to = drone_id + "@localhost"
-                    finish_msg.set_metadata("performative", "inform")
-                    finish_msg.body = "Orders finished"
+                # When all orders are completed, inform the drones and stop its self
+                if(len(self.agent.orders)== 0):
+                    print("\n")
+                    print(str(self.agent.jid).split("@")[0] + ' finished orders')
+                    print("\n")
+                    await asyncio.sleep(1)
+                    for drone_id in self.agent.drones.keys():
+                        finish_msg = Message()
+                        finish_msg.sender = str(self.agent.jid)
+                        finish_msg.to = drone_id + "@localhost"
+                        finish_msg.set_metadata("performative", "inform")
+                        finish_msg.body = "Orders finished"
+                        await self.send(finish_msg)
+                    
+                    finish_msg.to = "environment@localhost"
                     await self.send(finish_msg)
-                
-                finish_msg.to = "environment@localhost"
-                await self.send(finish_msg)
-                
-                self.kill()
+                    
+                    self.kill()
                     
         

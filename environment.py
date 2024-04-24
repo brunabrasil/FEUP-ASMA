@@ -3,6 +3,7 @@ from spade.behaviour import CyclicBehaviour
 from spade.message import Message
 import random
 from threading import Timer
+import asyncio
 
 class Environment(Agent):
 
